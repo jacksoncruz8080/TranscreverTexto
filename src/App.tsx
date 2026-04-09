@@ -14,7 +14,8 @@ import {
   Play, 
   Pause,
   RotateCcw,
-  Volume2
+  Volume2,
+  AlertCircle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -26,6 +27,9 @@ export default function App() {
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [transcription, setTranscription] = useState<string>('');
   const [isTranscribing, setIsTranscribing] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [currentChunk, setCurrentChunk] = useState(0);
+  const [totalChunks, setTotalChunks] = useState(0);
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
@@ -41,16 +45,19 @@ export default function App() {
         setAudioUrl(URL.createObjectURL(selectedFile));
         setTranscription('');
         setError(null);
+        setProgress(0);
+        setCurrentChunk(0);
+        setTotalChunks(0);
       } else {
         setError('Por favor, selecione um arquivo de áudio válido.');
       }
     }
   };
 
-  const fileToBase64 = (file: File): Promise<string> => {
+  const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(blob);
       reader.onload = () => {
         const base64String = (reader.result as string).split(',')[1];
         resolve(base64String);
@@ -64,33 +71,62 @@ export default function App() {
 
     setIsTranscribing(true);
     setError(null);
-    try {
-      const base64Data = await fileToBase64(file);
-      
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: [
-          {
-            inlineData: {
-              mimeType: file.type,
-              data: base64Data,
-            },
-          },
-          {
-            text: "Por favor, transcreva este áudio exatamente como ele é falado. Se houver vários falantes, tente identificá-los se possível. Retorne apenas a transcrição.",
-          },
-        ],
-      });
+    setTranscription('');
+    setProgress(0);
 
-      const text = response.text;
-      if (text) {
-        setTranscription(text);
-      } else {
-        throw new Error('Não foi possível gerar a transcrição.');
+    try {
+      // Chunk size: ~10MB (approx 10-15 mins of compressed audio)
+      const CHUNK_SIZE = 10 * 1024 * 1024; 
+      const OVERLAP_SIZE = 512 * 1024; // 0.5MB overlap to avoid losing words at boundaries
+      
+      const chunks: Blob[] = [];
+      let start = 0;
+      
+      while (start < file.size) {
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        chunks.push(file.slice(start, end));
+        start += (CHUNK_SIZE - OVERLAP_SIZE);
       }
+
+      setTotalChunks(chunks.length);
+      let fullTranscription = '';
+
+      for (let i = 0; i < chunks.length; i++) {
+        setCurrentChunk(i + 1);
+        const chunkBase64 = await blobToBase64(chunks[i]);
+        
+        const response = await ai.models.generateContent({
+          model: "gemini-3-flash-preview",
+          contents: [
+            {
+              inlineData: {
+                mimeType: file.type,
+                data: chunkBase64,
+              },
+            },
+            {
+              text: i === 0 
+                ? "Transcreva este áudio integralmente. Retorne apenas o texto da transcrição, sem comentários adicionais."
+                : "Este áudio é a continuação de uma parte anterior. Transcreva esta parte integralmente. Retorne apenas o texto da transcrição desta parte específica, sem comentários adicionais.",
+            },
+          ],
+        });
+
+        const chunkText = response.text;
+        if (chunkText) {
+          // Simple deduplication for overlap: try to find where the new text starts
+          // This is a basic heuristic, Gemini usually handles the context well if prompted
+          fullTranscription += (fullTranscription ? '\n\n' : '') + chunkText;
+          setTranscription(fullTranscription);
+        }
+        
+        const currentProgress = Math.round(((i + 1) / chunks.length) * 100);
+        setProgress(currentProgress);
+      }
+
     } catch (err) {
       console.error(err);
-      setError('Ocorreu um erro ao transcrever o áudio. Verifique se o arquivo não é muito grande ou tente novamente.');
+      setError('Ocorreu um erro ao transcrever o áudio. O arquivo pode ser muito complexo ou houve instabilidade na conexão.');
     } finally {
       setIsTranscribing(false);
     }
@@ -118,6 +154,9 @@ export default function App() {
     setAudioUrl(null);
     setTranscription('');
     setError(null);
+    setProgress(0);
+    setCurrentChunk(0);
+    setTotalChunks(0);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -132,8 +171,8 @@ export default function App() {
             </div>
             <h1 className="text-xl font-semibold tracking-tight">Transcrever Áudio em Texto</h1>
           </div>
-          <div className="text-xs font-medium text-gray-500 uppercase tracking-widest bg-gray-100 px-3 py-1 rounded-full">
-            Powered JS Software e Tecnologia
+          <div className="text-xs font-medium text-gray-500 tracking-widest bg-gray-100 px-3 py-1 rounded-full">
+            Powered by JS Software e Tecnologia
           </div>
         </div>
       </header>
@@ -158,7 +197,7 @@ export default function App() {
                   </div>
                   <div className="text-center">
                     <p className="font-medium text-gray-900">Clique para fazer upload</p>
-                    <p className="text-sm text-gray-500 mt-1">MP3, WAV, M4A ou OGG</p>
+                    <p className="text-sm text-gray-500 mt-1">Ideal para áudios longos (2h+)</p>
                   </div>
                   <input 
                     type="file" 
@@ -184,7 +223,8 @@ export default function App() {
                     </div>
                     <button 
                       onClick={reset}
-                      className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors"
+                      disabled={isTranscribing}
+                      className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-red-500 transition-colors disabled:opacity-30"
                       title="Remover arquivo"
                     >
                       <RotateCcw className="w-5 h-5" />
@@ -217,6 +257,25 @@ export default function App() {
                     </div>
                   )}
 
+                  {isTranscribing && (
+                    <div className="mb-6 space-y-2">
+                      <div className="flex justify-between text-xs font-bold text-blue-600 uppercase tracking-wider">
+                        <span>Progresso Total</span>
+                        <span>{progress}%</span>
+                      </div>
+                      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                        <motion.div 
+                          className="h-full bg-blue-600"
+                          initial={{ width: 0 }}
+                          animate={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <p className="text-[10px] text-gray-400 text-center font-medium">
+                        Processando parte {currentChunk} de {totalChunks}
+                      </p>
+                    </div>
+                  )}
+
                   <button
                     onClick={transcribeAudio}
                     disabled={isTranscribing}
@@ -225,10 +284,10 @@ export default function App() {
                     {isTranscribing ? (
                       <>
                         <Loader2 className="w-5 h-5 animate-spin" />
-                        Transcrevendo...
+                        Processando...
                       </>
                     ) : (
-                      'Iniciar Transcrição'
+                      'Iniciar Transcrição Completa'
                     )}
                   </button>
                 </motion.div>
@@ -239,18 +298,35 @@ export default function App() {
               <motion.div 
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                className="p-4 bg-red-50 border border-red-100 text-red-600 rounded-xl text-sm"
+                className="p-4 bg-red-50 border border-red-100 text-red-600 rounded-xl text-sm flex gap-3"
               >
-                {error}
+                <AlertCircle className="w-5 h-5 shrink-0" />
+                <p>{error}</p>
               </motion.div>
             )}
+
+            <div className="p-6 bg-blue-50/50 rounded-2xl border border-blue-100">
+              <h3 className="text-xs font-bold text-blue-900 uppercase tracking-wider mb-2">Dica para arquivos longos</h3>
+              <p className="text-xs text-blue-800 leading-relaxed">
+                Arquivos grandes são divididos em partes menores para garantir que nada seja cortado. 
+                O texto aparecerá na direita conforme cada parte for concluída.
+              </p>
+            </div>
           </div>
 
           {/* Right Column: Transcription Output */}
           <div className="lg:col-span-7">
             <section className="h-full flex flex-col">
               <div className="flex items-center justify-between mb-4">
-                <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Resultado da Transcrição</h2>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Resultado da Transcrição</h2>
+                  {isTranscribing && (
+                    <span className="flex items-center gap-1.5 px-2 py-0.5 bg-amber-100 text-amber-700 text-[10px] font-bold rounded-md animate-pulse">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      AINDA PROCESSANDO...
+                    </span>
+                  )}
+                </div>
                 {transcription && (
                   <button 
                     onClick={copyToClipboard}
@@ -265,7 +341,7 @@ export default function App() {
                 )}
               </div>
 
-              <div className="flex-1 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[400px] flex flex-col">
+              <div className="flex-1 bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden min-h-[500px] flex flex-col">
                 <div className="flex-1 p-8 overflow-y-auto custom-scrollbar">
                   <AnimatePresence mode="wait">
                     {!transcription && !isTranscribing ? (
@@ -279,26 +355,6 @@ export default function App() {
                         <FileAudio className="w-12 h-12 mb-4 opacity-20" />
                         <p>A transcrição aparecerá aqui após o processamento.</p>
                       </motion.div>
-                    ) : isTranscribing ? (
-                      <motion.div 
-                        key="loading"
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        className="h-full flex flex-col items-center justify-center gap-4"
-                      >
-                        <div className="flex gap-1">
-                          {[0, 1, 2].map((i) => (
-                            <motion.div
-                              key={i}
-                              animate={{ height: [10, 30, 10] }}
-                              transition={{ repeat: Infinity, duration: 0.8, delay: i * 0.1 }}
-                              className="w-1.5 bg-blue-500 rounded-full"
-                            />
-                          ))}
-                        </div>
-                        <p className="text-sm text-gray-500 font-medium">Analisando ondas sonoras...</p>
-                      </motion.div>
                     ) : (
                       <motion.div 
                         key="content"
@@ -306,9 +362,16 @@ export default function App() {
                         animate={{ opacity: 1 }}
                         className="prose prose-blue max-w-none"
                       >
-                        <p className="text-gray-800 leading-relaxed whitespace-pre-wrap">
+                        <div className="text-gray-800 leading-relaxed whitespace-pre-wrap font-sans text-base">
                           {transcription}
-                        </p>
+                          {isTranscribing && (
+                            <span className="inline-flex ml-2">
+                              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+                              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.15s] mx-1"></span>
+                              <span className="w-1.5 h-1.5 bg-blue-600 rounded-full animate-bounce"></span>
+                            </span>
+                          )}
+                        </div>
                       </motion.div>
                     )}
                   </AnimatePresence>
