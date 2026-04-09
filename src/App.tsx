@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { 
   FileAudio, 
@@ -15,7 +15,10 @@ import {
   Pause,
   RotateCcw,
   Volume2,
-  AlertCircle
+  AlertCircle,
+  Mic,
+  Square,
+  Circle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -33,9 +36,79 @@ export default function App() {
   const [copied, setCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   
+  // Recording states
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordingTime, setRecordingTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<NodeJS.Timeout | null>(null);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, []);
+
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) {
+          chunksRef.current.push(e.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const recordedFile = new File([blob], `gravacao-${new Date().getTime()}.webm`, { type: 'audio/webm' });
+        
+        setFile(recordedFile);
+        setAudioUrl(URL.createObjectURL(recordedFile));
+        setTranscription('');
+        setError(null);
+        
+        // Stop all tracks
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordingTime(0);
+      timerRef.current = setInterval(() => {
+        setRecordingTime(prev => prev + 1);
+      }, 1000);
+      
+      setError(null);
+    } catch (err) {
+      console.error(err);
+      setError('Não foi possível acessar o microfone. Verifique as permissões.');
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && isRecording) {
+      mediaRecorderRef.current.stop();
+      setIsRecording(false);
+      if (timerRef.current) {
+        clearInterval(timerRef.current);
+        timerRef.current = null;
+      }
+    }
+  };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
@@ -182,31 +255,89 @@ export default function App() {
           
           {/* Left Column: Upload & Controls */}
           <div className="lg:col-span-5 space-y-8">
-            <section>
-              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-4">Importar Áudio</h2>
+            <section className="space-y-6">
+              <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Entrada de Áudio</h2>
               
               {!file ? (
-                <motion.div 
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-gray-300 rounded-2xl p-12 flex flex-col items-center justify-center gap-4 bg-white hover:border-blue-500 hover:bg-blue-50/30 transition-all cursor-pointer group"
-                >
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center group-hover:bg-blue-100 transition-colors">
-                    <Upload className="w-8 h-8 text-gray-400 group-hover:text-blue-600" />
+                <div className="space-y-4">
+                  {/* Upload Area */}
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    onClick={() => !isRecording && fileInputRef.current?.click()}
+                    className={`border-2 border-dashed rounded-2xl p-10 flex flex-col items-center justify-center gap-4 bg-white transition-all cursor-pointer group ${isRecording ? 'opacity-50 cursor-not-allowed' : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50/30'}`}
+                  >
+                    <div className="w-14 h-14 bg-gray-100 rounded-full flex items-center justify-center group-hover:bg-blue-100 transition-colors">
+                      <Upload className="w-7 h-7 text-gray-400 group-hover:text-blue-600" />
+                    </div>
+                    <div className="text-center">
+                      <p className="font-medium text-gray-900">Importar arquivo</p>
+                      <p className="text-xs text-gray-500 mt-1">MP3, WAV, M4A, OGG</p>
+                    </div>
+                    <input 
+                      type="file" 
+                      ref={fileInputRef}
+                      onChange={handleFileChange}
+                      accept="audio/*"
+                      className="hidden"
+                      disabled={isRecording}
+                    />
+                  </motion.div>
+
+                  <div className="relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <span className="w-full border-t border-gray-200"></span>
+                    </div>
+                    <div className="relative flex justify-center text-xs uppercase">
+                      <span className="bg-[#F8F9FA] px-2 text-gray-400 font-bold">ou</span>
+                    </div>
                   </div>
-                  <div className="text-center">
-                    <p className="font-medium text-gray-900">Clique para fazer upload</p>
-                    <p className="text-sm text-gray-500 mt-1">Ideal para áudios longos (2h+)</p>
-                  </div>
-                  <input 
-                    type="file" 
-                    ref={fileInputRef}
-                    onChange={handleFileChange}
-                    accept="audio/*"
-                    className="hidden"
-                  />
-                </motion.div>
+
+                  {/* Recording Area */}
+                  <motion.div 
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className={`border border-gray-200 rounded-2xl p-6 bg-white shadow-sm flex flex-col items-center gap-4 ${isRecording ? 'ring-2 ring-red-500 border-transparent' : ''}`}
+                  >
+                    {isRecording ? (
+                      <div className="flex flex-col items-center gap-3 w-full">
+                        <div className="flex items-center gap-2 text-red-600 font-mono font-bold text-xl">
+                          <motion.div 
+                            animate={{ opacity: [1, 0, 1] }}
+                            transition={{ repeat: Infinity, duration: 1 }}
+                            className="w-3 h-3 bg-red-600 rounded-full"
+                          />
+                          {formatTime(recordingTime)}
+                        </div>
+                        <p className="text-xs text-gray-500 font-medium">Gravando áudio do microfone...</p>
+                        <button 
+                          onClick={stopRecording}
+                          className="w-full py-3 bg-red-600 text-white rounded-xl font-semibold hover:bg-red-700 transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Square className="w-4 h-4 fill-current" />
+                          Parar Gravação
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-3 w-full">
+                        <div className="w-14 h-14 bg-red-50 rounded-full flex items-center justify-center">
+                          <Mic className="w-7 h-7 text-red-600" />
+                        </div>
+                        <div className="text-center">
+                          <p className="font-medium text-gray-900">Gravar agora</p>
+                          <p className="text-xs text-gray-500 mt-1">Use seu microfone</p>
+                        </div>
+                        <button 
+                          onClick={startRecording}
+                          className="w-full py-3 bg-gray-900 text-white rounded-xl font-semibold hover:bg-black transition-colors flex items-center justify-center gap-2"
+                        >
+                          <Circle className="w-4 h-4 fill-red-600 text-red-600" />
+                          Iniciar Gravador
+                        </button>
+                      </div>
+                    )}
+                  </motion.div>
+                </div>
               ) : (
                 <motion.div 
                   initial={{ opacity: 0, scale: 0.95 }}
