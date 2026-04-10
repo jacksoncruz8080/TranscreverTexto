@@ -127,6 +127,44 @@ export default function App() {
     }
   };
 
+  const writeString = (view: DataView, offset: number, string: string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  const audioBufferToWav = (buffer: AudioBuffer, startOffset: number, endOffset: number): Blob => {
+    const numChannels = 1;
+    const sampleRate = buffer.sampleRate;
+    const length = endOffset - startOffset;
+    const wavBuffer = new ArrayBuffer(44 + length * 2);
+    const view = new DataView(wavBuffer);
+
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + length * 2, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, sampleRate * 2, true);
+    view.setUint16(32, numChannels * 2, true);
+    view.setUint16(34, 16, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, length * 2, true);
+
+    const channelData = buffer.getChannelData(0);
+    let offset = 44;
+    for (let i = startOffset; i < endOffset; i++) {
+      const s = Math.max(-1, Math.min(1, channelData[i]));
+      view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+      offset += 2;
+    }
+
+    return new Blob([wavBuffer], { type: 'audio/wav' });
+  };
+
   const blobToBase64 = (blob: Blob): Promise<string> => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -148,58 +186,65 @@ export default function App() {
     setProgress(0);
 
     try {
-      // Chunk size: ~10MB (approx 10-15 mins of compressed audio)
-      const CHUNK_SIZE = 10 * 1024 * 1024; 
-      const OVERLAP_SIZE = 512 * 1024; // 0.5MB overlap to avoid losing words at boundaries
+      // Step 1: Decode Audio
+      setProgress(1); // Start progress
+      const arrayBuffer = await file.arrayBuffer();
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
       
-      const chunks: Blob[] = [];
-      let start = 0;
-      
-      while (start < file.size) {
-        const end = Math.min(start + CHUNK_SIZE, file.size);
-        chunks.push(file.slice(start, end));
-        start += (CHUNK_SIZE - OVERLAP_SIZE);
+      let audioBuffer: AudioBuffer;
+      try {
+        audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
+      } catch (decodeErr) {
+        throw new Error('Falha ao decodificar o áudio. O formato pode não ser suportado ou o arquivo está corrompido.');
       }
 
-      setTotalChunks(chunks.length);
+      // Step 2: Prepare Chunks (5 minutes each)
+      const segmentDuration = 300; // 5 minutes in seconds
+      const samplesPerSegment = 16000 * segmentDuration;
+      const totalSamples = audioBuffer.length;
+      const chunksCount = Math.ceil(totalSamples / samplesPerSegment);
+      setTotalChunks(chunksCount);
+
       let fullTranscription = '';
 
-      for (let i = 0; i < chunks.length; i++) {
+      for (let i = 0; i < chunksCount; i++) {
         setCurrentChunk(i + 1);
-        const chunkBase64 = await blobToBase64(chunks[i]);
+        const start = i * samplesPerSegment;
+        const end = Math.min(start + samplesPerSegment, totalSamples);
+        
+        const wavBlob = audioBufferToWav(audioBuffer, start, end);
+        const chunkBase64 = await blobToBase64(wavBlob);
         
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
           contents: [
             {
               inlineData: {
-                mimeType: file.type,
+                mimeType: "audio/wav",
                 data: chunkBase64,
               },
             },
             {
-              text: i === 0 
-                ? "Transcreva este áudio integralmente. Retorne apenas o texto da transcrição, sem comentários adicionais."
-                : "Este áudio é a continuação de uma parte anterior. Transcreva esta parte integralmente. Retorne apenas o texto da transcrição desta parte específica, sem comentários adicionais.",
+              text: "Transcreva este áudio exatamente como ele é falado. Ignore ruídos de fundo. Retorne APENAS o texto da transcrição, sem introduções ou comentários.",
             },
           ],
         });
 
         const chunkText = response.text;
         if (chunkText) {
-          // Simple deduplication for overlap: try to find where the new text starts
-          // This is a basic heuristic, Gemini usually handles the context well if prompted
-          fullTranscription += (fullTranscription ? '\n\n' : '') + chunkText;
+          fullTranscription += (fullTranscription ? ' ' : '') + chunkText.trim();
           setTranscription(fullTranscription);
         }
         
-        const currentProgress = Math.round(((i + 1) / chunks.length) * 100);
+        const currentProgress = Math.round(((i + 1) / chunksCount) * 100);
         setProgress(currentProgress);
       }
 
+      await audioCtx.close();
+
     } catch (err) {
       console.error(err);
-      setError('Ocorreu um erro ao transcrever o áudio. O arquivo pode ser muito complexo ou houve instabilidade na conexão.');
+      setError(err instanceof Error ? err.message : 'Ocorreu um erro inesperado durante a transcrição.');
     } finally {
       setIsTranscribing(false);
     }
