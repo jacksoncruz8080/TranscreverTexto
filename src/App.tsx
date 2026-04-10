@@ -46,12 +46,34 @@ export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   useEffect(() => {
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
   }, []);
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) {
+      setCurrentTime(audioRef.current.currentTime);
+    }
+  };
+
+  const handleLoadedMetadata = () => {
+    if (audioRef.current) {
+      setDuration(audioRef.current.duration);
+    }
+  };
+
+  const handleSeek = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const time = parseFloat(e.target.value);
+    if (audioRef.current) {
+      audioRef.current.currentTime = time;
+      setCurrentTime(time);
+    }
+  };
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -80,6 +102,8 @@ export default function App() {
         setAudioUrl(URL.createObjectURL(recordedFile));
         setTranscription('');
         setError(null);
+        setCurrentTime(0);
+        setDuration(0);
         
         // Stop all tracks
         stream.getTracks().forEach(track => track.stop());
@@ -121,6 +145,8 @@ export default function App() {
         setProgress(0);
         setCurrentChunk(0);
         setTotalChunks(0);
+        setCurrentTime(0);
+        setDuration(0);
       } else {
         setError('Por favor, selecione um arquivo de áudio válido.');
       }
@@ -275,6 +301,8 @@ export default function App() {
     setProgress(0);
     setCurrentChunk(0);
     setTotalChunks(0);
+    setCurrentTime(0);
+    setDuration(0);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -413,21 +441,32 @@ export default function App() {
                         ref={audioRef} 
                         src={audioUrl} 
                         onEnded={() => setIsPlaying(false)}
+                        onTimeUpdate={handleTimeUpdate}
+                        onLoadedMetadata={handleLoadedMetadata}
                         className="hidden"
                       />
-                      <div className="flex items-center justify-center gap-4">
-                        <button 
-                          onClick={togglePlay}
-                          className="w-12 h-12 bg-white rounded-full shadow-sm border border-gray-200 flex items-center justify-center hover:scale-105 transition-transform"
-                        >
-                          {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-1" />}
-                        </button>
-                        <div className="flex-1 h-1 bg-gray-200 rounded-full overflow-hidden">
-                          <motion.div 
-                            className="h-full bg-blue-600"
-                            animate={{ width: isPlaying ? '100%' : '0%' }}
-                            transition={{ duration: audioRef.current?.duration || 0, ease: "linear" }}
-                          />
+                      <div className="flex flex-col gap-2">
+                        <div className="flex items-center justify-center gap-4">
+                          <button 
+                            onClick={togglePlay}
+                            className="w-12 h-12 bg-white rounded-full shadow-sm border border-gray-200 flex items-center justify-center hover:scale-105 transition-transform shrink-0"
+                          >
+                            {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5 ml-1" />}
+                          </button>
+                          <div className="flex-1 flex flex-col gap-1">
+                            <input 
+                              type="range"
+                              min="0"
+                              max={duration || 0}
+                              value={currentTime}
+                              onChange={handleSeek}
+                              className="w-full h-1.5 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                            />
+                            <div className="flex justify-between text-[10px] text-gray-400 font-mono">
+                              <span>{formatTime(Math.floor(currentTime))}</span>
+                              <span>{formatTime(Math.floor(duration))}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
