@@ -146,12 +146,26 @@ export default function App() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      const isAudio = selectedFile.type.startsWith('audio/') || 
-                      selectedFile.name.toLowerCase().endsWith('.oga') || 
-                      selectedFile.name.toLowerCase().endsWith('.ogg') ||
-                      selectedFile.name.toLowerCase().endsWith('.opus') ||
-                      selectedFile.name.toLowerCase().endsWith('.m4a') ||
-                      selectedFile.name.toLowerCase().endsWith('.mp3');
+      // Log for debugging (visible in console)
+      console.log('File selected:', {
+        name: selectedFile.name,
+        type: selectedFile.type,
+        size: selectedFile.size
+      });
+
+      const fileName = selectedFile.name.toLowerCase();
+      const fileType = selectedFile.type.toLowerCase();
+      
+      const isAudio = fileType.startsWith('audio/') || 
+                      fileType === 'application/ogg' ||
+                      fileType === 'video/ogg' || // Sometimes OGG is reported as video
+                      fileName.endsWith('.oga') || 
+                      fileName.endsWith('.ogg') ||
+                      fileName.endsWith('.opus') ||
+                      fileName.endsWith('.m4a') ||
+                      fileName.endsWith('.mp3') ||
+                      fileName.endsWith('.wav') ||
+                      fileName.endsWith('.aac');
 
       if (isAudio) {
         setFile(selectedFile);
@@ -390,7 +404,7 @@ export default function App() {
                       type="file" 
                       ref={fileInputRef}
                       onChange={handleFileChange}
-                      accept="audio/*"
+                      accept="audio/*,.oga,.ogg,.opus,.m4a,.mp3,.wav,.aac"
                       className="hidden"
                       disabled={isRecording}
                     />
