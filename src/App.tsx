@@ -137,7 +137,14 @@ export default function App() {
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const selectedFile = e.target.files?.[0];
     if (selectedFile) {
-      if (selectedFile.type.startsWith('audio/')) {
+      const isAudio = selectedFile.type.startsWith('audio/') || 
+                      selectedFile.name.toLowerCase().endsWith('.oga') || 
+                      selectedFile.name.toLowerCase().endsWith('.ogg') ||
+                      selectedFile.name.toLowerCase().endsWith('.opus') ||
+                      selectedFile.name.toLowerCase().endsWith('.m4a') ||
+                      selectedFile.name.toLowerCase().endsWith('.mp3');
+
+      if (isAudio) {
         setFile(selectedFile);
         setAudioUrl(URL.createObjectURL(selectedFile));
         setTranscription('');
@@ -148,7 +155,7 @@ export default function App() {
         setCurrentTime(0);
         setDuration(0);
       } else {
-        setError('Por favor, selecione um arquivo de áudio válido.');
+        setError('Por favor, selecione um arquivo de áudio válido (MP3, WAV, M4A, OGG, OPUS).');
       }
     }
   };
@@ -215,18 +222,18 @@ export default function App() {
       // Step 1: Decode Audio
       setProgress(1); // Start progress
       const arrayBuffer = await file.arrayBuffer();
-      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: 16000 });
+      const audioCtx = new (window.AudioContext || (window as any).webkitAudioContext)();
       
       let audioBuffer: AudioBuffer;
       try {
         audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       } catch (decodeErr) {
-        throw new Error('Falha ao decodificar o áudio. O formato pode não ser suportado ou o arquivo está corrompido.');
+        throw new Error('Falha ao decodificar o áudio. O formato (.oga, .ogg, .opus) pode não ser suportado pelo seu navegador atual ou o arquivo está corrompido. Tente usar o Google Chrome ou converter o arquivo para MP3/WAV.');
       }
 
       // Step 2: Prepare Chunks (5 minutes each)
       const segmentDuration = 300; // 5 minutes in seconds
-      const samplesPerSegment = 16000 * segmentDuration;
+      const samplesPerSegment = audioBuffer.sampleRate * segmentDuration;
       const totalSamples = audioBuffer.length;
       const chunksCount = Math.ceil(totalSamples / samplesPerSegment);
       setTotalChunks(chunksCount);
@@ -345,7 +352,7 @@ export default function App() {
                     </div>
                     <div className="text-center">
                       <p className="font-medium text-gray-900">Importar arquivo</p>
-                      <p className="text-xs text-gray-500 mt-1">MP3, WAV, M4A, OGG</p>
+                      <p className="text-xs text-gray-500 mt-1">MP3, WAV, M4A, OGG, OPUS</p>
                     </div>
                     <input 
                       type="file" 
