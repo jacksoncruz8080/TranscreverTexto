@@ -48,8 +48,17 @@ export default function App() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
+  const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
+    const checkMobile = () => {
+      const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
+      if (/android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase())) {
+        setIsMobile(true);
+      }
+    };
+    checkMobile();
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
@@ -277,7 +286,13 @@ export default function App() {
 
     } catch (err) {
       console.error(err);
-      setError(err instanceof Error ? err.message : 'Ocorreu um erro inesperado durante a transcrição.');
+      let errorMessage = err instanceof Error ? err.message : 'Ocorreu um erro inesperado durante a transcrição.';
+      
+      if (isMobile && errorMessage.includes('decodificar')) {
+        errorMessage += ' Em celulares, isso geralmente ocorre por falta de memória RAM livre. Tente fechar outras abas ou usar um computador.';
+      }
+      
+      setError(errorMessage);
     } finally {
       setIsTranscribing(false);
     }
@@ -335,6 +350,23 @@ export default function App() {
           
           {/* Left Column: Upload & Controls */}
           <div className="lg:col-span-5 space-y-8">
+            {isMobile && (
+              <motion.div 
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="p-4 bg-amber-50 border border-amber-100 text-amber-800 rounded-xl text-xs flex gap-3 shadow-sm"
+              >
+                <AlertCircle className="w-5 h-5 text-amber-600 shrink-0" />
+                <div>
+                  <p className="font-bold mb-1">Aviso para Celular</p>
+                  <p className="leading-relaxed">
+                    Dispositivos móveis possuem memória RAM limitada. Para arquivos longos ou melhor performance, 
+                    recomendamos o uso de um computador.
+                  </p>
+                </div>
+              </motion.div>
+            )}
+
             <section className="space-y-6">
               <h2 className="text-sm font-bold text-gray-400 uppercase tracking-wider">Entrada de Áudio</h2>
               
