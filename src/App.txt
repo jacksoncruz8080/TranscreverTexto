@@ -159,13 +159,11 @@ export default function App() {
       const isAudio = fileType.startsWith('audio/') || 
                       fileType === 'application/ogg' ||
                       fileType === 'video/ogg' || // Sometimes OGG is reported as video
-                      fileType === 'video/mpeg' || // MPEG can be reported as video
                       fileName.endsWith('.oga') || 
                       fileName.endsWith('.ogg') ||
                       fileName.endsWith('.opus') ||
                       fileName.endsWith('.m4a') ||
                       fileName.endsWith('.mp3') ||
-                      fileName.endsWith('.mpeg') ||
                       fileName.endsWith('.wav') ||
                       fileName.endsWith('.aac');
 
@@ -180,7 +178,7 @@ export default function App() {
         setCurrentTime(0);
         setDuration(0);
       } else {
-        setError('Por favor, selecione um arquivo de áudio válido (MP3, WAV, M4A, OGG, OPUS, MPEG).');
+        setError('Por favor, selecione um arquivo de áudio válido (MP3, WAV, M4A, OGG, OPUS).');
       }
     }
   };
@@ -253,7 +251,7 @@ export default function App() {
       try {
         audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       } catch (decodeErr) {
-        throw new Error('Falha ao decodificar o áudio. O formato (.oga, .ogg, .opus, .mpeg) pode não ser suportado pelo seu navegador atual ou o arquivo está corrompido. Tente usar o Google Chrome ou converter o arquivo para MP3/WAV.');
+        throw new Error('Falha ao decodificar o áudio. O formato (.oga, .ogg, .opus) pode não ser suportado pelo seu navegador atual ou o arquivo está corrompido. Tente usar o Google Chrome ou converter o arquivo para MP3/WAV.');
       }
 
       // Step 2: Prepare Chunks (5 minutes each)
@@ -400,13 +398,13 @@ export default function App() {
                     </div>
                     <div className="text-center">
                       <p className="font-medium text-gray-900">Importar arquivo</p>
-                      <p className="text-xs text-gray-500 mt-1">MP3, WAV, M4A, OGG, OPUS, MPEG</p>
+                      <p className="text-xs text-gray-500 mt-1">MP3, WAV, M4A, OGG, OPUS</p>
                     </div>
                     <input 
                       type="file" 
                       ref={fileInputRef}
                       onChange={handleFileChange}
-                      accept="audio/*,video/mpeg,.oga,.ogg,.opus,.m4a,.mp3,.mpeg,.wav,.aac"
+                      accept="audio/*,.oga,.ogg,.opus,.m4a,.mp3,.wav,.aac"
                       className="hidden"
                       disabled={isRecording}
                     />

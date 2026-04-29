@@ -1,5 +1,7 @@
 {
-  "name": "AudioTranscribe AI",
+  "name": "Remix: AudioTranscribe AI",
   "description": "Transcreva seus arquivos de áudio instantaneamente usando inteligência artificial.",
-  "requestFramePermissions": ["microphone"]
+  "requestFramePermissions": [
+    "microphone"
+  ]
 }
