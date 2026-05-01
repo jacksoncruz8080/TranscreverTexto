@@ -18,12 +18,23 @@ import {
   AlertCircle,
   Mic,
   Square,
-  Circle
+  Circle,
+  History,
+  Trash2,
+  Clock,
+  Calendar
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 // Initialize Gemini API
 const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
+interface HistoryItem {
+  id: string;
+  date: string;
+  filename: string;
+  text: string;
+}
 
 export default function App() {
   const [file, setFile] = useState<File | null>(null);
@@ -49,8 +60,19 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isMobile, setIsMobile] = useState(false);
+  const [history, setHistory] = useState<HistoryItem[]>([]);
 
   useEffect(() => {
+    // Load history from localStorage
+    const savedHistory = localStorage.getItem('transcription-history');
+    if (savedHistory) {
+      try {
+        setHistory(JSON.parse(savedHistory));
+      } catch (e) {
+        console.error('Failed to load history', e);
+      }
+    }
+
     const checkMobile = () => {
       const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
       if (/android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase())) {
@@ -194,7 +216,7 @@ export default function App() {
   const audioBufferToWav = (buffer: AudioBuffer, startOffset: number, endOffset: number): Blob => {
     const numChannels = 1;
     const sampleRate = buffer.sampleRate;
-    const length = endOffset - startOffset;
+    const length = Math.floor(endOffset - startOffset);
     const wavBuffer = new ArrayBuffer(44 + length * 2);
     const view = new DataView(wavBuffer);
 
@@ -214,6 +236,8 @@ export default function App() {
 
     const channelData = buffer.getChannelData(0);
     let offset = 44;
+    
+    // Process in a tight loop but with bounds checking
     for (let i = startOffset; i < endOffset; i++) {
       const s = Math.max(-1, Math.min(1, channelData[i]));
       view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
@@ -256,8 +280,8 @@ export default function App() {
         throw new Error('Falha ao decodificar o áudio. O formato (.oga, .ogg, .opus, .mpeg) pode não ser suportado pelo seu navegador atual ou o arquivo está corrompido. Tente usar o Google Chrome ou converter o arquivo para MP3/WAV.');
       }
 
-      // Step 2: Prepare Chunks (5 minutes each)
-      const segmentDuration = 300; // 5 minutes in seconds
+      // Step 2: Prepare Chunks (Reduced to 2 minutes for better stability)
+      const segmentDuration = 120; // 2 minutes in seconds (safer for memory and UI)
       const samplesPerSegment = audioBuffer.sampleRate * segmentDuration;
       const totalSamples = audioBuffer.length;
       const chunksCount = Math.ceil(totalSamples / samplesPerSegment);
@@ -270,22 +294,27 @@ export default function App() {
         const start = i * samplesPerSegment;
         const end = Math.min(start + samplesPerSegment, totalSamples);
         
+        // Small pause to let UI breathe
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
         const wavBlob = audioBufferToWav(audioBuffer, start, end);
         const chunkBase64 = await blobToBase64(wavBlob);
         
         const response = await ai.models.generateContent({
           model: "gemini-3-flash-preview",
-          contents: [
-            {
-              inlineData: {
-                mimeType: "audio/wav",
-                data: chunkBase64,
+          contents: {
+            parts: [
+              {
+                inlineData: {
+                  mimeType: "audio/wav",
+                  data: chunkBase64,
+                },
               },
-            },
-            {
-              text: "Transcreva este áudio exatamente como ele é falado. Ignore ruídos de fundo. Retorne APENAS o texto da transcrição, sem introduções ou comentários.",
-            },
-          ],
+              {
+                text: "Transcreva este áudio exatamente como ele é falado. Ignore ruídos de fundo. Retorne APENAS o texto da transcrição, sem introduções ou comentários.",
+              },
+            ],
+          },
         });
 
         const chunkText = response.text;
@@ -299,6 +328,23 @@ export default function App() {
       }
 
       await audioCtx.close();
+
+      // Save to history with quota safety
+      try {
+        const newHistoryItem: HistoryItem = {
+          id: crypto.randomUUID(),
+          date: new Date().toISOString(),
+          filename: file.name,
+          text: fullTranscription
+        };
+        
+        const updatedHistory = [newHistoryItem, ...history];
+        setHistory(updatedHistory);
+        localStorage.setItem('transcription-history', JSON.stringify(updatedHistory));
+      } catch (storageErr) {
+        console.warn('Could not save to history - localStorage might be full');
+        setError('A transcrição foi concluída, mas o histórico está cheio e esta entrada não pôde ser salva.');
+      }
 
     } catch (err) {
       console.error(err);
@@ -328,6 +374,19 @@ export default function App() {
         audioRef.current.play();
       }
       setIsPlaying(!isPlaying);
+    }
+  };
+
+  const deleteHistoryItem = (id: string) => {
+    const updatedHistory = history.filter(item => item.id !== id);
+    setHistory(updatedHistory);
+    localStorage.setItem('transcription-history', JSON.stringify(updatedHistory));
+  };
+
+  const clearHistory = () => {
+    if (confirm('Tem certeza que deseja apagar todo o histórico?')) {
+      setHistory([]);
+      localStorage.removeItem('transcription-history');
     }
   };
 
@@ -650,6 +709,82 @@ export default function App() {
             </section>
           </div>
         </div>
+
+        {/* History Section */}
+        <section className="mt-20 border-t border-gray-200 pt-12">
+          <div className="flex items-center justify-between mb-8">
+            <div className="flex items-center gap-3">
+              <div className="bg-gray-100 p-2 rounded-lg">
+                <History className="w-5 h-5 text-gray-600" />
+              </div>
+              <h2 className="text-xl font-semibold tracking-tight text-gray-900">Histórico de Transcrições</h2>
+            </div>
+            {history.length > 0 && (
+              <button 
+                onClick={clearHistory}
+                className="text-xs font-semibold text-red-500 hover:text-red-600 bg-red-50 px-3 py-1.5 rounded-lg transition-colors flex items-center gap-2"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                Limpar Histórico
+              </button>
+            )}
+          </div>
+
+          {history.length === 0 ? (
+            <div className="bg-white border border-gray-200 rounded-2xl p-12 text-center text-gray-400">
+              <p>Nenhuma transcrição salva no histórico ainda.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {history.map((item) => (
+                <motion.div 
+                  key={item.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm hover:shadow-md transition-all flex flex-col group relative"
+                >
+                  <button 
+                    onClick={() => deleteHistoryItem(item.id)}
+                    className="absolute top-4 right-4 p-2 text-gray-300 hover:text-red-500 hover:bg-red-50 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                    title="Excluir"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                  
+                  <div className="mb-4">
+                    <p className="font-bold text-gray-900 text-sm truncate pr-8 mb-1" title={item.filename}>
+                      {item.filename}
+                    </p>
+                    <div className="flex items-center gap-3 text-[10px] text-gray-400 font-medium uppercase tracking-wider">
+                      <span className="flex items-center gap-1">
+                        <Calendar className="w-3 h-3" />
+                        {new Date(item.date).toLocaleDateString('pt-BR')}
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <Clock className="w-3 h-3" />
+                        {new Date(item.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 bg-gray-50 rounded-xl p-3 text-xs text-gray-600 line-clamp-4 leading-relaxed mb-4 italic">
+                    "{item.text}"
+                  </div>
+
+                  <button 
+                    onClick={() => {
+                      setTranscription(item.text);
+                      window.scrollTo({ top: 0, behavior: 'smooth' });
+                    }}
+                    className="w-full py-2 bg-gray-100 text-gray-600 rounded-xl text-xs font-bold hover:bg-blue-600 hover:text-white transition-all flex items-center justify-center gap-2"
+                  >
+                    Ver detalhes
+                  </button>
+                </motion.div>
+              ))}
+            </div>
+          )}
+        </section>
       </main>
 
       <style>{`
