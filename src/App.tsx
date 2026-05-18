@@ -22,7 +22,11 @@ import {
   History,
   Trash2,
   Clock,
-  Calendar
+  Calendar,
+  Download,
+  Smartphone,
+  X,
+  Share
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -62,6 +66,12 @@ export default function App() {
   const [isMobile, setIsMobile] = useState(false);
   const [history, setHistory] = useState<HistoryItem[]>([]);
 
+  // PWA states
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [showInstallButton, setShowInstallButton] = useState(false);
+  const [showIOSInstructions, setShowIOSInstructions] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+
   useEffect(() => {
     // Load history from localStorage
     const savedHistory = localStorage.getItem('transcription-history');
@@ -75,16 +85,51 @@ export default function App() {
 
     const checkMobile = () => {
       const userAgent = navigator.userAgent || navigator.vendor || (window as any).opera;
-      if (/android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase())) {
-        setIsMobile(true);
+      const mobileStatus = /android|iphone|ipad|ipod|blackberry|iemobile|opera mini/i.test(userAgent.toLowerCase());
+      setIsMobile(mobileStatus);
+
+      // Check if it's iOS
+      const iosStatus = /iphone|ipad|ipod/i.test(userAgent.toLowerCase());
+      setIsIOS(iosStatus);
+
+      // Check if already in standalone mode (installed)
+      const isStandalone = window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone === true;
+      
+      if (iosStatus && !isStandalone) {
+        setShowIOSInstructions(true);
       }
     };
     checkMobile();
 
+    // PWA Install Prompt
+    const handleBeforeInstallPrompt = (e: any) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallButton(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', () => {
+      setShowInstallButton(false);
+      setDeferredPrompt(null);
+    });
+
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     };
   }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === 'accepted') {
+      setShowInstallButton(false);
+      setDeferredPrompt(null);
+    }
+  };
+
 
   const handleTimeUpdate = () => {
     if (audioRef.current) {
@@ -406,7 +451,7 @@ export default function App() {
   return (
     <div className="min-h-screen bg-[#F8F9FA] text-[#1A1A1A] font-sans selection:bg-blue-100">
       {/* Header */}
-      <header className="border-b border-gray-200 bg-white/80 backdrop-blur-md sticky top-0 z-10">
+      <header className="border-b border-gray-200 bg-white/80 backdrop-blur-md sticky top-0 z-20">
         <div className="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <div className="bg-blue-600 p-2 rounded-lg">
@@ -414,11 +459,96 @@ export default function App() {
             </div>
             <h1 className="text-xl font-semibold tracking-tight">Transcrever Áudio em Texto</h1>
           </div>
-          <div className="text-xs font-medium text-gray-500 tracking-widest bg-gray-100 px-3 py-1 rounded-full">
-            Powered by JS Software e Tecnologia
+          <div className="flex items-center gap-4">
+            {showInstallButton && (
+              <button 
+                onClick={handleInstallClick}
+                className="hidden md:flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-all shadow-md active:scale-95"
+              >
+                <Download className="w-4 h-4" />
+                Instalar App
+              </button>
+            )}
+            <div className="hidden sm:block text-xs font-medium text-gray-500 tracking-widest bg-gray-100 px-3 py-1 rounded-full">
+              Powered by JS Software e Tecnologia
+            </div>
           </div>
         </div>
       </header>
+
+      {/* PWA Mobile Banners */}
+      <AnimatePresence>
+        {showInstallButton && isMobile && (
+          <motion.div 
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-6 right-6 z-50 bg-blue-600 text-white p-4 rounded-2xl shadow-2xl flex items-center justify-between"
+          >
+            <div className="flex items-center gap-3">
+              <div className="bg-white/20 p-2 rounded-xl">
+                <Smartphone className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="font-bold text-sm">Instalar Aplicativo</p>
+                <p className="text-[10px] text-blue-100 italic">Tenha acesso rápido e offline</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button 
+                onClick={() => setShowInstallButton(false)}
+                className="p-2 hover:bg-white/10 rounded-lg transition-colors"
+                title="Ignorar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+              <button 
+                onClick={handleInstallClick}
+                className="bg-white text-blue-600 px-4 py-2 rounded-xl text-sm font-bold shadow-sm active:scale-95"
+              >
+                Instalar
+              </button>
+            </div>
+          </motion.div>
+        )}
+
+        {showIOSInstructions && isIOS && (
+          <motion.div 
+            initial={{ opacity: 0, y: 50 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 50 }}
+            className="fixed bottom-6 left-6 right-6 z-50 bg-white border border-gray-200 p-5 rounded-2xl shadow-2xl"
+          >
+            <div className="flex justify-between items-start mb-3">
+              <div className="flex items-center gap-3">
+                <div className="bg-blue-50 p-2 rounded-xl">
+                  <Smartphone className="w-6 h-6 text-blue-600" />
+                </div>
+                <div>
+                  <p className="font-bold text-sm text-gray-900">Instalar no iOS</p>
+                  <p className="text-[10px] text-gray-500">Adicione à sua tela de início</p>
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowIOSInstructions(false)}
+                className="p-1 hover:bg-gray-100 rounded-lg text-gray-400 transition-colors"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="bg-gray-50 rounded-xl p-3 text-xs text-gray-600 space-y-2">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-white border border-gray-200 rounded flex items-center justify-center text-blue-600 font-bold">1</div>
+                <p>Toque no ícone de <span className="font-bold inline-flex items-center gap-1">compartilhar <Share className="w-3 h-3" /></span></p>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 bg-white border border-gray-200 rounded flex items-center justify-center text-blue-600 font-bold">2</div>
+                <p>Role para baixo e toque em <span className="font-bold">"Adicionar à Tela de Início"</span></p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <main className="max-w-5xl mx-auto px-6 py-12">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">

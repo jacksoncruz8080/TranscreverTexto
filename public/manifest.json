@@ -1,0 +1,23 @@
+{
+  "name": "AudioTranscribe AI",
+  "short_name": "AudioTranscribe",
+  "description": "Transcreva seus arquivos de áudio instantaneamente usando inteligência artificial.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#2563eb",
+  "icons": [
+    {
+      "src": "/assets/transcribe192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/assets/transcribe512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
